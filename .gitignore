@@ -1,0 +1,11 @@
+node_modules/
+lib/
+*.log
+.DS_Store
+
+# Megumi and other third-party character assets are local-only until their
+# redistribution rights are explicitly confirmed.
+assets/models/*
+!assets/models/.gitkeep
+!assets/models/haru/
+!assets/models/haru/**

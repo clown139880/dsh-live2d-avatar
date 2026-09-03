@@ -1,0 +1,29 @@
+- insert:
+    - id: live2d-avatar
+      name: 'dsh-live2d-avatar'
+      config:
+        enabled: true
+        modelRoot: ''
+        modelEntry: 'haru/Haru.model3.json'
+        modelScale: 1
+        modelX: 0
+        modelY: 0.1
+        characterName: 'Haru'
+        defaultMode: 'dialogue'
+        background: 'var(--dsw-alias-bg-base)'
+        showSubtitleInVoiceMode: true
+        llmControlEnabled: false
+        asrEnabled: false
+        asrBaseUrl: ''
+        asrModel: 'sensevoice-small'
+        voiceInputMode: 'push-to-talk'
+        vadThreshold: 0.035
+        vadSilenceMs: 900
+        fastFirstResponse: true
+        modelDeckApiKeyEnv: ''
+        ttsEnabled: false
+        ttsBaseUrl: ''
+        ttsModel: 'gpt-sovits-v2pro'
+        ttsVoice: ''
+        ttsLanguage: 'zh'
+        ttsSpeed: 1
