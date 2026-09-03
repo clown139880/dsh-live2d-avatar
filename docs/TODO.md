@@ -1,8 +1,6 @@
 # Avatar TODO
 
-这份清单记录 Avatar 接下来的产品方向，也承接 Open-LLM-VTuber（OLV）
-退役审计中仍值得保留的思路。这里只保留需求与边界，不复制 OLV 的 Python
-服务、Agent 编排或 provider 实现。
+这份清单记录 Avatar 接下来的产品方向与边界。
 
 ## P0：把舞台与桌宠接到同一个会话控制器
 
@@ -47,19 +45,7 @@
   的附件/工具能力，不在 Avatar 中重建旧视觉 Agent。
 - [ ] 抽象角色包：Live2D 模型、角色 profile、动作协议、默认音色，以及对 DSH
   persona preset 的引用；角色包不得接管会话或 Agent。
-- [ ] 评估多角色舞台。只有该需求成立后，才重新评估 OLV 的 group conversation
-  交互；当前不迁移多客户端群聊与广播。
+- [ ] 评估多角色舞台；当前不支持多客户端群聊与广播。
 - [ ] 如确有跨语言朗读需求，优先让 DSH 输出目标语言，其次考虑 ModelDeck 的
   无状态翻译能力，不在插件内引入翻译模型。
 - [ ] 直播投影（例如弹幕）只作为未来独立适配器研究，不纳入当前核心插件。
-
-## 明确不迁移
-
-- OLV 的 LLM provider、Agent factory、记忆、历史、persona 会话与 MCP 工具层。
-- OLV 的 FastAPI/WebSocket 服务端、客户端连接组和任务编排。
-- OLV 内置的 ASR/TTS/翻译 provider 及 SenseVoice、Whisper、GPT-SoVITS、
-  PyTorch、CUDA 等本地推理依赖；这些能力统一由 ModelDeck API 提供。
-- OLV 的模型选择、聊天记录和通用配置 UI；分别由 DSH 与 ModelDeck capabilities
-  负责。
-- OLV 的旧视觉输入压缩实验和本地 `conf.yaml` persona。相关产品方向已在上面
-  重新归属，旧实现和本地配置随 OLV 目录退役。

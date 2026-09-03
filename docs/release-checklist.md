@@ -37,7 +37,7 @@ gates for 0.1.0. The ModelDeck integration remains experimental and opt-in.
 
 - [x] `pnpm install --frozen-lockfile`
 - [x] `pnpm typecheck`
-- [x] `pnpm test` (31 tests)
+- [x] `pnpm test` (33 tests)
 - [x] `pnpm build`
 - [x] `pnpm audit --prod` (no known vulnerabilities)
 - [x] Packed tarball installs in an empty npm consumer project.
