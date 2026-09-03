@@ -52,7 +52,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "preview:pet": "node scripts/preview-pet.mjs",
-    "prepare": "pnpm build"
+    "prepare": "npm run build"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
