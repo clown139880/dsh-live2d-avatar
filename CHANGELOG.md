@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+- Restore the GitHub link on the npm package page by adding `repository`,
+  `homepage` and `bugs` metadata.
+- Switch README images and doc references to absolute GitHub URLs so they
+  render on the npm registry page instead of 404ing on relative paths.
+
 ## 0.2.0
 
 - The desktop pet now remembers both its window width and screen position, and

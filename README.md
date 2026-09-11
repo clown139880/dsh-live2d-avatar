@@ -16,7 +16,7 @@
 - 可选的表情控制 prompt；首次安装默认关闭，并支持按当前对话授权
 - ASR/TTS 默认关闭，不影响没有语音服务的用户使用视觉功能
 
-![Haru 形象舞台](docs/images/stage-haru.png)
+![Haru 形象舞台](https://raw.githubusercontent.com/clown139880/dsh-live2d-avatar/main/docs/images/stage-haru.png)
 
 ## 安装
 
@@ -43,7 +43,7 @@ dsh plugin --profile web remove dsh-live2d-avatar
 
 在普通 `dsh web` 中，桌宠会显示为页面内的可拖动浮层。在 TokensCowork Desktop 中，插件可以创建透明、无边框、置顶的独立窗口，因此主窗口最小化或被其他应用遮挡时，角色仍可显示在 Windows 桌面上。
 
-![Desktop 独立桌宠](docs/images/desktop-pet.png)
+![Desktop 独立桌宠](https://raw.githubusercontent.com/clown139880/dsh-live2d-avatar/main/docs/images/desktop-pet.png)
 
 独立窗口仍依赖正在运行的 TokensCowork Desktop；退出客户端后桌宠也会关闭。桌宠和舞台会使用当前形象设置，包括模型、角色名、缩放和位置。
 
@@ -57,11 +57,11 @@ dsh plugin --profile web remove dsh-live2d-avatar
 
 也可以把模型目录放在插件的 `assets/models/<名称>/` 下。由于模型目录会由本机 DSH 服务提供给浏览器，请只选择专用模型目录，不要选择包含隐私文件的宽泛目录。
 
-![自定义模型设置](docs/images/custom-model-settings.png)
+![自定义模型设置](https://raw.githubusercontent.com/clown139880/dsh-live2d-avatar/main/docs/images/custom-model-settings.png)
 
 未知模型会使用通用 profile；基础渲染、口型同步和模型自带的点击动作仍可工作。更细致的表情到动作映射属于后续版本，不影响第一版使用自定义模型。
 
-内置 Haru 使用 Live2D 的 Free Material License，具体授权请阅读 [`assets/models/haru/NOTICE.md`](assets/models/haru/NOTICE.md)。Haru 的授权不包含在本项目 MIT 许可证中。
+内置 Haru 使用 Live2D 的 Free Material License，具体授权请阅读 [`assets/models/haru/NOTICE.md`](https://github.com/clown139880/dsh-live2d-avatar/blob/main/assets/models/haru/NOTICE.md)。Haru 的授权不包含在本项目 MIT 许可证中。
 
 ## 表情控制 prompt
 
@@ -72,7 +72,7 @@ dsh plugin --profile web remove dsh-live2d-avatar
 - 可以在设置中配置全局默认，但单个对话仍可覆盖
 - 控制标记不会显示在台词或发送到 TTS
 
-![表情控制授权](docs/images/prompt-consent.png)
+![表情控制授权](https://raw.githubusercontent.com/clown139880/dsh-live2d-avatar/main/docs/images/prompt-consent.png)
 
 ## ASR 与 TTS（可选）
 
@@ -108,8 +108,8 @@ dsh plugin --profile web add link:C:\path\to\dsh-live2d-heroine
 dsh --profile web
 ```
 
-发布前检查项见 [`docs/release-checklist.md`](docs/release-checklist.md)。
+发布前检查项见 [`docs/release-checklist.md`](https://github.com/clown139880/dsh-live2d-avatar/blob/main/docs/release-checklist.md)。
 
 ## 许可证与示例素材
 
-插件代码使用 MIT 许可证，见 [`LICENSE`](LICENSE)。内置 Haru 示例素材由 Live2D Inc. 提供并受其单独授权条款约束；请同时阅读 [`NOTICE.md`](assets/models/haru/NOTICE.md) 以及 [Live2D Free Material License](https://www.live2d.com/eula/live2d-free-material-license-agreement_en.html)。
+插件代码使用 MIT 许可证，见 [`LICENSE`](https://github.com/clown139880/dsh-live2d-avatar/blob/main/LICENSE)。内置 Haru 示例素材由 Live2D Inc. 提供并受其单独授权条款约束；请同时阅读 [`NOTICE.md`](https://github.com/clown139880/dsh-live2d-avatar/blob/main/assets/models/haru/NOTICE.md) 以及 [Live2D Free Material License](https://www.live2d.com/eula/live2d-free-material-license-agreement_en.html)。
