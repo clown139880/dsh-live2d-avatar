@@ -1,7 +1,7 @@
 import { once } from 'node:events'
 import { createServer, type Server } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
-import { handleModelDeckProxy } from '../src/host/modeldeck-proxy.ts'
+import { handleModelDeckProxy, registerModelDeckProxy, VOICE_API_PREFIX } from '../src/host/modeldeck-proxy.ts'
 import { DEFAULT_CONFIG, type HeroineConfig } from '../src/shared/config.ts'
 
 const servers: Server[] = []
@@ -18,6 +18,28 @@ async function listen(server: Server): Promise<string> {
 async function close(server: Server): Promise<void> {
   server.close()
   await once(server, 'close')
+}
+
+/**
+ * A minimal cordis-shaped `ctx` that captures the web-server registrations a
+ * plugin makes. `registerModelDeckProxy` calls `ctx.effect(() =>
+ * ctx.webServer.register(...))`, so this only needs `effect` to run the factory
+ * and `webServer.register` to record the route spec.
+ */
+function fakeCtx() {
+  const registrations: Array<{ kind: string; path: string; handler: (req: unknown, res: unknown) => Promise<void> | void }> = []
+  const ctx = {
+    logger: { info() {}, warn() {} },
+    effect(fn: () => void) {
+      fn()
+    },
+    webServer: {
+      register(spec: { kind: string; path: string; handler: (req: unknown, res: unknown) => Promise<void> | void }) {
+        registrations.push(spec)
+      },
+    },
+  }
+  return { ctx, registrations }
 }
 
 afterEach(async () => {
@@ -136,5 +158,43 @@ describe('ModelDeck proxy', () => {
 
     expect(response.status).toBe(503)
     expect(await response.json()).toMatchObject({ error: { code: 'invalid_base_url' } })
+  })
+
+  it('observes config updates made after registration (stale-configSource closure regression)', async () => {
+    // Guards the host-side wiring bug where `registerModelDeckProxy` received
+    // `configSource` by value before the settings service finished loading, so
+    // a later `setSource` reassignment never reached the already-registered
+    // route handler and the proxy always used the schema-default (empty base
+    // URL) config — surfacing as a permanent 503 "ModelDeck base URL is not
+    // configured" no matter what settings.yaml contained.
+    //
+    // `apply()` must hand the proxy a STABLE accessor that reads a mutable ref,
+    // so handlers that capture it by value keep observing the latest settings.
+    const { ctx, registrations } = fakeCtx()
+    const configRef: { current: () => HeroineConfig } = { current: () => ({ ...DEFAULT_CONFIG }) }
+    const configSource = (): HeroineConfig => configRef.current()
+    registerModelDeckProxy(ctx, configSource)
+
+    const upstreamUrl = await listen(createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end('{"asr":{"status":"ready"},"tts":{"status":"ready"}}')
+    }))
+
+    // The settings service becomes available asynchronously: swap the ref AFTER
+    // registration, exactly as `setSource` does inside installSettingsSection.
+    configRef.current = () => ({
+      ...DEFAULT_CONFIG,
+      asrEnabled: true,
+      asrBaseUrl: upstreamUrl,
+      ttsEnabled: true,
+    })
+
+    const spec = registrations.find((r) => r.path === VOICE_API_PREFIX)
+    expect(spec).toBeDefined()
+    const proxyUrl = await listen(createServer((req, res) => spec!.handler(req, res)))
+    const response = await fetch(`${proxyUrl}${VOICE_API_PREFIX}/health`)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ asr: { status: 'ready' }, tts: { status: 'ready' } })
   })
 })

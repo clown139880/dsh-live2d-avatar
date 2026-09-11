@@ -31,11 +31,14 @@ function resize(width: number): void {
   if (larger) larger.disabled = next >= MAX_WIDTH
 }
 
-function persistCurrentSize(): void {
+function persistBounds(): void {
   if (sizeSaveTimer !== undefined) clearTimeout(sizeSaveTimer)
   sizeSaveTimer = setTimeout(() => {
     const width = currentWidth()
-    try { localStorage.setItem(SIZE_KEY, String(width)) } catch { /* storage can be unavailable */ }
+    try {
+      localStorage.setItem(SIZE_KEY, String(width))
+      localStorage.setItem(POSITION_KEY, JSON.stringify({ x: window.screenX, y: window.screenY }))
+    } catch { /* storage can be unavailable */ }
     if (smaller) smaller.disabled = width <= MIN_WIDTH
     if (larger) larger.disabled = width >= MAX_WIDTH
   }, 120)
@@ -66,8 +69,9 @@ if (canvas) {
   void engine.load(resolveModelUrl(modelEntry)).catch(() => {})
   window.addEventListener('resize', () => {
     engine.resize()
-    persistCurrentSize()
+    persistBounds()
   })
+  window.addEventListener('move', persistBounds)
   window.addEventListener('beforeunload', () => engine.destroy())
 }
 

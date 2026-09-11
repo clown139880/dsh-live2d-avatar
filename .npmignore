@@ -1,1 +1,5 @@
 assets/models/megumi/
+
+# Internal research docs and scratch artifacts; keep them out of the published
+# tarball (mirrors the assets/models/* local-only policy).
+.scratch-docs/

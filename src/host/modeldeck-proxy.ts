@@ -43,10 +43,13 @@ function validatedBaseUrl(value: string): string {
 }
 
 function configuredBaseUrl(target: ProxyTarget, config: HeroineConfig): string {
-  if (target === 'asr') return config.asrBaseUrl
+  if (target === 'asr') return config.asrBaseUrl || config.ttsBaseUrl
   if (target === 'tts' || target === 'voices') return config.ttsBaseUrl || config.asrBaseUrl
   if (target === 'capabilities') return config.asrBaseUrl || config.ttsBaseUrl
-  return config.asrEnabled ? config.asrBaseUrl : config.ttsBaseUrl
+  // Health probes the whole service; prefer the active role's URL but fall back to
+  // whichever base is configured so a single ModelDeck instance (serving both ASR
+  // and TTS) never reports "not configured" just because only one URL is set.
+  return (config.asrEnabled ? config.asrBaseUrl : config.ttsBaseUrl) || config.ttsBaseUrl || config.asrBaseUrl
 }
 
 function targetUrl(target: ProxyTarget, config: HeroineConfig): string {

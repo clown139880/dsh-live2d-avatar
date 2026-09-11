@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { presentationFromPayload, petUrl } from '../src/host/desktop-pet.ts'
+import { presentationFromPayload, petUrl, windowBoundsFromPayload } from '../src/host/desktop-pet.ts'
 import { DEFAULT_CONFIG } from '../src/shared/config.ts'
 
 describe('desktop pet presentation', () => {
@@ -39,6 +39,35 @@ describe('desktop pet presentation', () => {
       modelScale: 5,
       modelX: DEFAULT_CONFIG.modelX,
       modelY: -3,
+    })
+  })
+})
+
+describe('desktop pet window bounds', () => {
+  it('uses the saved screen position and clamped width from the payload', () => {
+    expect(windowBoundsFromPayload({ width: 260, x: 412, y: 88 })).toEqual({
+      width: 260,
+      height: Math.round(260 * 250 / 180),
+      x: 412,
+      y: 88,
+    })
+  })
+
+  it('clamps width into the window range and omits a missing position', () => {
+    expect(windowBoundsFromPayload({ width: 5000 })).toEqual({
+      width: 480,
+      height: Math.round(480 * 250 / 180),
+      x: undefined,
+      y: undefined,
+    })
+  })
+
+  it('defaults to a 300px-wide window and ignores non-finite position', () => {
+    expect(windowBoundsFromPayload({ width: Number.NaN, x: Number.NaN, y: 'high' })).toEqual({
+      width: 300,
+      height: Math.round(300 * 250 / 180),
+      x: undefined,
+      y: undefined,
     })
   })
 })

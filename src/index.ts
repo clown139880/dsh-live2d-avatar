@@ -99,14 +99,20 @@ function packageRoot(): string {
 
 export function apply(ctx: Context, config: Config): void {
   ctx.logger.info('Avatar host loaded')
-  let configSource = (): Config => config
+  // `configSource` must be a stable closure so functions that receive it by
+  // value (e.g. registerModelDeckProxy) keep observing settings updates. The
+  // settings service becomes available asynchronously; reassigning a bare
+  // `let` here would otherwise leave every captured reference on the original
+  // (default) config, so the proxy would never see the user's base URL.
+  const configRef: { current: () => Config } = { current: () => config }
+  const configSource = (): Config => configRef.current()
   installSettingsSection(
     ctx,
     settingsNamespace(SETTINGS_NAMESPACE),
     Config,
     config,
     {
-      setSource: (source) => { configSource = source },
+      setSource: (source) => { configRef.current = source },
       onChange: () => {},
     },
   )

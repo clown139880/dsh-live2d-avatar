@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Live2D 模型浏览器</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Live2D 模型浏览器</h1>
+      <span class="count" id="count">加载中…</span>
+    </div>
+    <div class="controls">
+      <button id="btn-loop" type="button" title="加载后自动循环播放动作">🔁 循环</button>
+      <button id="toggle-all" type="button">展开/收起全部</button>
+      <button id="random" type="button" title="随机换一个">🎲 随机</button>
+      <button id="btn-manage" type="button" title="管理模式：可删除模型/目录" class="danger-ghost">🛠 管理</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="stage-panel">
+      <div class="stage-wrap">
+        <canvas id="stage" width="560" height="760"></canvas>
+        <div id="status" class="status">未加载</div>
+      </div>
+      <div class="stage-meta">
+        <div class="meta-title" id="meta-title">—</div>
+        <div class="meta-sub" id="meta-sub">—</div>
+        <div class="stage-actions">
+          <button id="btn-reset" type="button">✕ 清空</button>
+          <button id="btn-smaller" type="button">− 缩小</button>
+          <button id="btn-larger" type="button">＋ 放大</button>
+          <button id="btn-expr" type="button">😊 表情</button>
+        </div>
+        <div class="stage-lists">
+          <div class="stage-list" id="motion-block" hidden>
+            <div class="stage-list-title">动作（点击播放，点击角色可轮播）</div>
+            <div class="stage-list-items" id="motion-list"></div>
+          </div>
+          <div class="stage-list" id="expr-block" hidden>
+            <div class="stage-list-title">表情（点击切换）</div>
+            <div class="stage-list-items" id="expr-list"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tree-pane">
+      <div class="tree-toolbar">
+        <input id="search" type="search" placeholder="筛选作品 / 模型，如 モノノ or mori_miko" autocomplete="off">
+      </div>
+      <div class="tree" id="tree"></div>
+    </section>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

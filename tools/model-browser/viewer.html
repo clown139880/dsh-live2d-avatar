@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Megumi Dress Verify</title>
+<style>
+  body { margin: 0; background: #1e2130; color: #eee; font-family: system-ui; display: flex; gap: 16px; padding: 16px; }
+  .panel { background: #2a2e40; border-radius: 10px; padding: 12px; }
+  canvas { background: #14161f; border-radius: 8px; display: block; }
+  h2 { margin: 0 0 8px; font-size: 15px; }
+  select, button { padding: 6px 10px; border-radius: 6px; border: 0; margin-right: 6px; }
+  #status { font-size: 12px; opacity: .8; margin-top: 8px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+  <div class="panel">
+    <h2>Original (megumi)</h2>
+    <canvas id="orig" width="360" height="480"></canvas>
+  </div>
+  <div class="panel">
+    <h2>Pink dress (megumi-dress)</h2>
+    <canvas id="dress" width="360" height="480"></canvas>
+  </div>
+  <div class="panel" style="flex-direction:column; display:flex; gap:8px;">
+    <h2>Controls</h2>
+    <select id="motion">
+      <option value="">— idle (default) —</option>
+    </select>
+    <div>
+      <button id="btn-surprise">惊讶</button>
+      <button id="btn-fun">开心</button>
+      <button id="btn-sad">伤心</button>
+    </div>
+    <div id="status">loading…</div>
+  </div>
+<script type="module" src="/viewer.js"></script>
+</body>
+</html>

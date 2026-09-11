@@ -30,6 +30,7 @@ interface NativeWindow {
     getURL(): string
     setWindowOpenHandler(handler: () => { action: 'deny' }): void
     on(event: 'will-navigate', listener: (event: { preventDefault(): void }, url: string) => void): void
+    session: { webRequest: { onBeforeSendHeaders(filter: unknown, listener: unknown): void } }
   }
 }
 
@@ -101,6 +102,90 @@ export function presentationFromPayload(payload: unknown, fallback: HeroineConfi
   }
 }
 
+export interface DesktopPetBounds {
+  width: number
+  height: number
+  x?: number
+  y?: number
+}
+
+/**
+ * Derive the pet window bounds from the renderer's show payload. The renderer
+ * persists the desktop pet's width and screen position in local storage and
+ * sends them back on each launch, so after restarting the app the pet opens at
+ * the same size and spot the user left it. Only finite values are honored;
+ * a missing position keeps the window on Electron's default placement.
+ */
+export function windowBoundsFromPayload(payload: unknown): DesktopPetBounds {
+  const input = payload !== null && typeof payload === 'object'
+    ? payload as Record<string, unknown>
+    : {}
+  const requestedWidth = Number(input.width)
+  const width = Number.isFinite(requestedWidth) ? Math.max(180, Math.min(480, Math.round(requestedWidth))) : 300
+  const height = Math.round(width * 250 / 180)
+  const requestedX = Number(input.x)
+  const requestedY = Number(input.y)
+  return {
+    width,
+    height,
+    x: Number.isFinite(requestedX) ? Math.round(requestedX) : undefined,
+    y: Number.isFinite(requestedY) ? Math.round(requestedY) : undefined,
+  }
+}
+
+/** Pair an `http(s):` origin with its `ws(s):` counterpart for the carrier fence. */
+function pairedWebSocketOrigin(raw: string): string {
+  const url = new URL(raw)
+  if (url.protocol === 'http:') url.protocol = 'ws:'
+  else if (url.protocol === 'https:') url.protocol = 'wss:'
+  return url.origin
+}
+
+interface DesktopBrowserAccessLike {
+  rendererHeader?: { name: string; value: string }
+}
+
+/**
+ * New Desktop gate: dsh-plugin-desktop wraps every WebServer route in a
+ * `permits` check that classifies traffic as "renderer" only when requests
+ * carry the generation-scoped `x-dsh-desktop-renderer` header. The Electron
+ * renderer injects this header for its own window, but a BrowserWindow created
+ * by a plugin (our pet window) does not, so every pet request returns
+ * 403 "forbidden". Attach the same renderer header to the pet window's session
+ * so the fence classifies its page, runtime script and Live2D model requests as
+ * renderer traffic. We do this on the shared default session (not a separate
+ * partition) so the pet<->main BroadcastChannel keeps working; because the
+ * listener injects for the carrier origin it also preserves the main
+ * renderer's own access once it takes over the session's single
+ * onBeforeSendHeaders seat.
+ */
+function attachRendererAccessHeader(
+  webContents: {
+    session: { webRequest: { onBeforeSendHeaders(filter: unknown, listener: unknown): void } }
+  },
+  header: { name: string; value: string },
+  carrierOrigin: string,
+): void {
+  let wsOrigin: string | undefined
+  try { wsOrigin = pairedWebSocketOrigin(carrierOrigin) } catch { wsOrigin = undefined }
+  const headerName = header.name.toLowerCase()
+  const webRequest = webContents.session.webRequest
+  webRequest.onBeforeSendHeaders(
+    { urls: ['<all_urls>'] },
+    (details: { requestHeaders?: Record<string, string>; url?: string }, callback: (opts: { requestHeaders: Record<string, string> }) => void) => {
+      const requestHeaders: Record<string, string> = { ...(details.requestHeaders ?? {}) }
+      for (const key of Object.keys(requestHeaders)) {
+        if (key.toLowerCase() === headerName) delete requestHeaders[key]
+      }
+      try {
+        const origin = new URL(details.url ?? '').origin
+        if (origin === carrierOrigin || origin === wsOrigin) requestHeaders[header.name] = header.value
+      } catch { /* ignore malformed URL */ }
+      callback({ requestHeaders })
+    },
+  )
+}
+
 /** Optional TokensCowork adapter. All Electron access stays behind runtime detection. */
 export function registerDesktopPet(ctx: Context, configSource: () => HeroineConfig): void {
   ctx.inject(['connection'], (scoped) => {
@@ -158,10 +243,24 @@ export function registerDesktopPet(ctx: Context, configSource: () => HeroineConf
         if (origin === undefined) return failure('desktop-origin-unavailable')
         if (parent !== petWindow) clientWindow = parent
 
-        const requestedWidth = Number((payload as { width?: unknown } | null)?.width)
-        const width = Number.isFinite(requestedWidth) ? Math.max(180, Math.min(480, Math.round(requestedWidth))) : 300
-        const height = Math.round(width * 250 / 180)
-        const url = petUrl(origin, presentationFromPayload(payload, configSource()))
+        const { width, height, x, y } = windowBoundsFromPayload(payload)
+        // The model presentation is authoritative from the host settings
+        // (`configSource()`), not from the renderer payload. The client can be
+        // mounted before its settings scope resolves, and would then send the
+        // schema-default `modelEntry` (Haru) on the first `show`, leaving the
+        // desktop pet on the default model forever even though the user picked
+        // Megumi. Reading the resolved settings here (which the configSource
+        // closure keeps current) always shows the configured heroine, and keeps
+        // the payload scoped to the renderer-specific window bounds/position.
+        const config = configSource()
+        const url = petUrl(origin, {
+          modelEntry: config.modelEntry,
+          characterName: config.characterName,
+          showPetNameplate: config.showPetNameplate,
+          modelScale: config.modelScale,
+          modelX: config.modelX,
+          modelY: config.modelY,
+        })
 
         if (petWindow !== undefined && !petWindow.isDestroyed()) {
           if (petWindow.webContents.getURL() !== url) await petWindow.loadURL(url)
@@ -173,6 +272,10 @@ export function registerDesktopPet(ctx: Context, configSource: () => HeroineConf
         const created = new api.BrowserWindow({
           width,
           height,
+          // Restore the screen position the user left the pet at, so the window
+          // reopens on the same spot after an app restart.
+          ...(x !== undefined ? { x } : {}),
+          ...(y !== undefined ? { y } : {}),
           minWidth: 180,
           minHeight: Math.round(180 * 250 / 180),
           maxWidth: 480,
@@ -204,6 +307,14 @@ export function registerDesktopPet(ctx: Context, configSource: () => HeroineConf
         })
         created.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
         petWindow = created
+        // Attach the Desktop renderer access header so the WebServer fence treats
+        // this window's traffic as renderer traffic. Without it the new Desktop
+        // gate returns 403 "forbidden" for the pet page, its runtime script and
+        // the Live2D model requests whenever ordinary browser access is off.
+        const browserAccess = (scoped as unknown as { get?: (key: string) => DesktopBrowserAccessLike | undefined }).get?.('desktopBrowserAccess')
+        if (browserAccess?.rendererHeader !== undefined) {
+          attachRendererAccessHeader(created.webContents, browserAccess.rendererHeader, origin)
+        }
         await created.loadURL(url)
         return { ok: true, value: { available: true, visible: true } }
       } catch (error) {

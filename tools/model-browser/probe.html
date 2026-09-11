@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>L2D render probe</title>
+  <style>
+    html, body { margin: 0; background: #eef0f4; color: #222; font-family: system-ui, sans-serif; }
+    #probe-status { padding: 10px 14px; font-size: 13px; position: fixed; left: 8px; top: 8px;
+      background: #11151d; color: #fff; border-radius: 8px; z-index: 9; max-width: 70vw; }
+    #probe-out { display: block; width: 100%; height: auto; }
+  </style>
+</head>
+<body>
+  <div id="probe-status">idle</div>
+  <canvas id="work" width="240" height="320" style="display:none"></canvas>
+  <div id="probe-result"></div>
+  <script type="module" src="/probe.js"></script>
+</body>
+</html>

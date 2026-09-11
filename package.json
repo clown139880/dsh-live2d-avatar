@@ -1,6 +1,6 @@
 {
   "name": "dsh-live2d-avatar",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A switchable Live2D avatar stage and desktop companion for DeepSeek Harness.",
   "license": "MIT",
   "keywords": [
@@ -52,6 +52,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "preview:pet": "node scripts/preview-pet.mjs",
+    "preview:models": "node tools/model-browser/gen-manifest.mjs && node tools/model-browser/server.mjs",
     "prepare": "npm run build"
   },
   "peerDependencies": {
