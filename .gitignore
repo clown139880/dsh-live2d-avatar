@@ -35,7 +35,19 @@ tools/upload-asset-v2.mjs
 tools/model-browser/manifest.json
 tools/model-browser/names.json
 
+# Optional companion Electron dropped by the user (never bundled/published);
+# the host only uses it when present via vendor/ or DSH_LIVE2D_AVATAR_ELECTRON.
+vendor/
+
 # Internal research docs that document pulling third-party game Live2D
 # assets; these stay out of the public package (mirrors the assets/models/*
 # local-only policy).
 .scratch-docs/
+
+# One-off analysis/diagnostic scripts and dumps (kept on disk, never committed
+# or published).
+.scratch-*.js
+.scratch-*.json
+.scratch-*.html
+.scratch-*.png
+.scratch-*.txt

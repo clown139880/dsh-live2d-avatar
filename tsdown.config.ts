@@ -60,4 +60,20 @@ export default defineConfig([
     },
     outputOptions: { entryFileNames: 'pet-window.js' },
   },
+  {
+    // The standalone Desktop pet window main. Run by Electron, never bundled
+    // into the host index. `electron` stays external; `main.ts` is type-checked
+    // against the ambient `src/companion/electron.d.ts`.
+    name: `${PACKAGE_ID}/companion`,
+    entry: { companion: 'src/companion/main.ts' },
+    format: 'esm',
+    platform: 'node',
+    target: 'es2022',
+    outDir: 'lib',
+    dts: false,
+    clean: false,
+    sourcemap: true,
+    deps: { neverBundle: ['electron'] },
+    outputOptions: { entryFileNames: 'companion.mjs' },
+  },
 ])

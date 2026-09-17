@@ -1,8 +1,26 @@
 import type { Context } from '@deepseek-ai/cordis'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { accessSync, appendFileSync, constants as fsConstants, mkdirSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { basename, delimiter, dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { HeroineConfig } from '../shared/config.ts'
 
 const CHANNEL = '/avatar-desktop-pet'
 const PET_PATH = '/avatar/pet'
+const COMPANION_BASENAME = 'companion.mjs'
+const ELECTRON_ENV = 'DSH_LIVE2D_AVATAR_ELECTRON'
+const READY_MARKER = '__DSH_PET_READY__'
+const FAIL_MARKER = '__DSH_PET_FAIL__'
+const COMPANION_READY_TIMEOUT_MS = 8000
+const HOST_LOG = join(process.env.APPDATA ?? tmpdir(), 'dsh-live2d-avatar-pet', 'host-companion.log')
+
+function hostLog(message: string): void {
+  try {
+    mkdirSync(dirname(HOST_LOG), { recursive: true })
+    appendFileSync(HOST_LOG, `[${new Date().toISOString()}] ${message}\n`)
+  } catch { /* non-fatal */ }
+}
 
 type RpcResult =
   | { ok: true; value: unknown }
@@ -18,30 +36,6 @@ interface HostConnection {
   }
 }
 
-interface NativeWindow {
-  isDestroyed(): boolean
-  loadURL(url: string): Promise<void>
-  show(): void
-  focus(): void
-  isMinimized(): boolean
-  restore(): void
-  close(): void
-  webContents: {
-    getURL(): string
-    setWindowOpenHandler(handler: () => { action: 'deny' }): void
-    on(event: 'will-navigate', listener: (event: { preventDefault(): void }, url: string) => void): void
-    session: { webRequest: { onBeforeSendHeaders(filter: unknown, listener: unknown): void } }
-  }
-}
-
-interface ElectronApi {
-  BrowserWindow: {
-    new(options: Record<string, unknown>): NativeWindow
-    getFocusedWindow(): NativeWindow | null
-    getAllWindows(): NativeWindow[]
-  }
-}
-
 type PetPresentation = Pick<HeroineConfig,
   'modelEntry' | 'characterName' | 'showPetNameplate' | 'modelScale' | 'modelX' | 'modelY'
 >
@@ -49,6 +43,10 @@ type PetPresentation = Pick<HeroineConfig,
 function failure(code: string, error?: unknown): RpcResult {
   const detail = error instanceof Error ? error.message : error === undefined ? code : String(error)
   return { ok: false, error: { code, message: detail, details: {} } }
+}
+
+function ok(value: unknown): RpcResult {
+  return { ok: true, value }
 }
 
 function loopbackOrigin(raw: string): string | undefined {
@@ -61,6 +59,134 @@ function loopbackOrigin(raw: string): string | undefined {
   } catch {
     return undefined
   }
+}
+
+function exists(path: string): boolean {
+  try {
+    accessSync(path, fsConstants.F_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Package root of the built artifact (lib/index.mjs sits one level below it). */
+function packageRoot(): string {
+  return fileURLToPath(new URL('../', import.meta.url))
+}
+
+/** The built standalone companion main that Electron will run. */
+function companionScriptPath(): string {
+  // After bundling this file lives in lib/index.mjs; the companion sits next to it.
+  return join(dirname(fileURLToPath(import.meta.url)), COMPANION_BASENAME)
+}
+
+function isElectronProcess(): boolean {
+  return typeof process.versions.electron === 'string' && process.versions.electron.length > 0
+}
+
+function platformBinaryName(): string {
+  return process.platform === 'win32' ? 'electron.exe' : 'electron'
+}
+
+/**
+ * True when running inside a packaged DSH Desktop (a commercial app exe with an
+ * `app.asar` bundle). In that case `process.execPath` is the app binary, not a
+ * generic Electron CLI, so it must never be used to launch the companion.
+ */
+function isPackagedDesktopApp(): boolean {
+  const resources = (process as unknown as { resourcesPath?: string }).resourcesPath
+  if (!resources) return false
+  return exists(join(resources, 'app.asar'))
+}
+
+/** Best-effort discovery of a generic Electron binary to run the companion. */
+export function resolveCompanionExecutable(explicitPath?: string): string | undefined {
+  // 0. A user-configured Electron path takes precedence (settings field).
+  if (explicitPath) {
+    hostLog(`resolveCompanionExecutable: explicit path "${explicitPath}" exists=${exists(explicitPath)}`)
+    if (exists(explicitPath)) return explicitPath
+  }
+
+  const override = process.env[ELECTRON_ENV]
+  if (override) {
+    hostLog(`resolveCompanionExecutable: env ${ELECTRON_ENV}=${override} exists=${exists(override)}`)
+    if (exists(override)) return override
+  }
+
+  const binary = platformBinaryName()
+
+  // 1. A companion-supplied vendor Electron (gitignored; user drops it here).
+  const root = packageRoot()
+  const vendorCandidates = [
+    join(root, 'vendor', `${process.platform}-${process.arch}`, binary),
+    join(root, 'vendor', binary),
+  ]
+  for (const candidate of vendorCandidates) {
+    if (exists(candidate)) { hostLog(`resolveCompanionExecutable: vendor ${candidate}`); return candidate }
+  }
+
+  // 2. A dev/unpacked Electron where process.execPath is the generic CLI.
+  // Only treat it as usable when the running binary is literally a generic
+  // Electron (`electron.exe` / `Electron`), never a packaged app exe. The host
+  // runs in a utilityProcess where `process.resourcesPath` is undefined, so
+  // `isPackagedDesktopApp()` misjudges the packaged app as "unpacked"; if we
+  // let it pick `TokensCowork.exe` it would spawn the whole app (single-instance
+  // lock) instead of a fresh window, which is exactly the last failure.
+  const execBase = basename(process.execPath).toLowerCase()
+  if (!isPackagedDesktopApp() && isElectronProcess() && execBase === binary.toLowerCase()) {
+    if (exists(process.execPath)) { hostLog(`resolveCompanionExecutable: process.execPath ${process.execPath}`); return process.execPath }
+  }
+
+  // 3. A generic Electron next to the running DSH Desktop dev repo.
+  const nearby = nearbyElectron(binary)
+  if (nearby) { hostLog(`resolveCompanionExecutable: nearby ${nearby}`); return nearby }
+
+  // 3b. Electron shipped with a DSH profile (the user's own environment often
+  // has one even if the running DSH is packaged, where process.execPath is the
+  // app exe and cannot be reused as a generic CLI). Scan the DSH home.
+  const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  const profileCandidates = [
+    join(dshHome, 'profiles', 'node_modules', 'electron', 'dist', binary),
+    join(dshHome, 'profiles', 'desktop', 'node_modules', 'electron', 'dist', binary),
+  ]
+  for (const candidate of profileCandidates) {
+    if (exists(candidate)) { hostLog(`resolveCompanionExecutable: dsh profile ${candidate}`); return candidate }
+  }
+
+  // 4. A system-installed Electron on PATH.
+  const onPath = whichElectron(binary)
+  if (onPath) { hostLog(`resolveCompanionExecutable: PATH ${onPath}`); return onPath }
+
+  hostLog(`resolveCompanionExecutable: NOT FOUND (platform=${process.platform} arch=${process.arch} binary=${binary} dshHome=${dshHome})`)
+  return undefined
+}
+
+/** Walk up from the running app's resources / cwd looking for a dev Electron. */
+function nearbyElectron(binary: string): string | undefined {
+  const resources = (process as unknown as { resourcesPath?: string }).resourcesPath
+  const seeds = [resources, process.cwd()].filter((value): value is string => typeof value === 'string')
+  for (const seed of seeds) {
+    let dir = seed
+    for (let depth = 0; depth < 5; depth += 1) {
+      const candidate = join(dir, 'node_modules', 'electron', 'dist', binary)
+      if (exists(candidate)) return candidate
+      const parent = resolve(dir, '..')
+      if (parent === dir) break
+      dir = parent
+    }
+  }
+  return undefined
+}
+
+function whichElectron(binary: string): string | undefined {
+  const pathValue = process.env.PATH ?? ''
+  for (const entry of pathValue.split(delimiter)) {
+    if (!entry) continue
+    const candidate = resolve(entry, binary)
+    if (exists(candidate)) return candidate
+  }
+  return undefined
 }
 
 export function petUrl(origin: string, config: PetPresentation): string {
@@ -113,8 +239,7 @@ export interface DesktopPetBounds {
  * Derive the pet window bounds from the renderer's show payload. The renderer
  * persists the desktop pet's width and screen position in local storage and
  * sends them back on each launch, so after restarting the app the pet opens at
- * the same size and spot the user left it. Only finite values are honored;
- * a missing position keeps the window on Electron's default placement.
+ * the same size and spot the user left it. Only finite values are honored.
  */
 export function windowBoundsFromPayload(payload: unknown): DesktopPetBounds {
   const input = payload !== null && typeof payload === 'object'
@@ -133,127 +258,105 @@ export function windowBoundsFromPayload(payload: unknown): DesktopPetBounds {
   }
 }
 
-/** Pair an `http(s):` origin with its `ws(s):` counterpart for the carrier fence. */
-function pairedWebSocketOrigin(raw: string): string {
-  const url = new URL(raw)
-  if (url.protocol === 'http:') url.protocol = 'ws:'
-  else if (url.protocol === 'https:') url.protocol = 'wss:'
-  return url.origin
+export interface CompanionSpawnArgs {
+  petUrl: string
+  width: number
+  height: number
+  x?: number
+  y?: number
+  rendererHeaderName?: string
+  rendererHeaderValue?: string
+  carrierOrigin?: string
+}
+
+/** Build the argv (excluding the script path) passed to the companion Electron. */
+export function companionArgv(args: CompanionSpawnArgs): string[] {
+  const argv = [`--pet-url=${args.petUrl}`, `--width=${args.width}`, `--height=${args.height}`]
+  if (args.x !== undefined) argv.push(`--x=${args.x}`)
+  if (args.y !== undefined) argv.push(`--y=${args.y}`)
+  if (args.rendererHeaderName !== undefined) argv.push(`--renderer-header-name=${args.rendererHeaderName}`)
+  if (args.rendererHeaderValue !== undefined) argv.push(`--renderer-header-value=${args.rendererHeaderValue}`)
+  if (args.carrierOrigin !== undefined) argv.push(`--carrier-origin=${args.carrierOrigin}`)
+  return argv
 }
 
 interface DesktopBrowserAccessLike {
   rendererHeader?: { name: string; value: string }
 }
 
-/**
- * New Desktop gate: dsh-plugin-desktop wraps every WebServer route in a
- * `permits` check that classifies traffic as "renderer" only when requests
- * carry the generation-scoped `x-dsh-desktop-renderer` header. The Electron
- * renderer injects this header for its own window, but a BrowserWindow created
- * by a plugin (our pet window) does not, so every pet request returns
- * 403 "forbidden". Attach the same renderer header to the pet window's session
- * so the fence classifies its page, runtime script and Live2D model requests as
- * renderer traffic. We do this on the shared default session (not a separate
- * partition) so the pet<->main BroadcastChannel keeps working; because the
- * listener injects for the carrier origin it also preserves the main
- * renderer's own access once it takes over the session's single
- * onBeforeSendHeaders seat.
- */
-function attachRendererAccessHeader(
-  webContents: {
-    session: { webRequest: { onBeforeSendHeaders(filter: unknown, listener: unknown): void } }
-  },
-  header: { name: string; value: string },
-  carrierOrigin: string,
-): void {
-  let wsOrigin: string | undefined
-  try { wsOrigin = pairedWebSocketOrigin(carrierOrigin) } catch { wsOrigin = undefined }
-  const headerName = header.name.toLowerCase()
-  const webRequest = webContents.session.webRequest
-  webRequest.onBeforeSendHeaders(
-    { urls: ['<all_urls>'] },
-    (details: { requestHeaders?: Record<string, string>; url?: string }, callback: (opts: { requestHeaders: Record<string, string> }) => void) => {
-      const requestHeaders: Record<string, string> = { ...(details.requestHeaders ?? {}) }
-      for (const key of Object.keys(requestHeaders)) {
-        if (key.toLowerCase() === headerName) delete requestHeaders[key]
-      }
-      try {
-        const origin = new URL(details.url ?? '').origin
-        if (origin === carrierOrigin || origin === wsOrigin) requestHeaders[header.name] = header.value
-      } catch { /* ignore malformed URL */ }
-      callback({ requestHeaders })
-    },
-  )
+interface DesktopScoped {
+  get?: (key: string) => DesktopBrowserAccessLike | undefined
 }
 
-/** Optional TokensCowork adapter. All Electron access stays behind runtime detection. */
+function originFromPayload(payload: unknown): string | undefined {
+  const input = payload !== null && typeof payload === 'object'
+    ? payload as Record<string, unknown>
+    : {}
+  return typeof input.origin === 'string' ? input.origin : undefined
+}
+
+/**
+ * Wait for the companion Electron to confirm its window has actually loaded and
+ * been shown (`__DSH_PET_READY__` on stdout). Resolves `false` if the process
+ * exits first or the window does not become ready in time, so the host can fall
+ * back to the page-internal pet instead of detaching it and showing nothing.
+ */
+function waitForCompanionReadiness(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (ready: boolean): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      child.stdout?.removeListener('data', onData)
+      resolve(ready)
+    }
+    const timer = setTimeout(() => finish(false), timeoutMs)
+    const onData = (chunk: Buffer | string): void => {
+      const text = String(chunk)
+      if (text.includes(READY_MARKER)) finish(true)
+      else if (text.includes(FAIL_MARKER)) finish(false)
+    }
+    child.stdout?.on('data', onData)
+    child.once('exit', () => finish(false))
+    child.once('error', () => finish(false))
+  })
+}
+
 export function registerDesktopPet(ctx: Context, configSource: () => HeroineConfig): void {
   ctx.inject(['connection'], (scoped) => {
     const connection = (scoped as unknown as { connection: HostConnection }).connection
-    let electronPromise: Promise<ElectronApi> | undefined
-    let petWindow: NativeWindow | undefined
-    let clientWindow: NativeWindow | undefined
-
-    const electron = async (): Promise<ElectronApi> => {
-      if (electronPromise === undefined) {
-        const moduleName = 'electron'
-        electronPromise = import(moduleName).then((value) => value as unknown as ElectronApi)
-      }
-      return electronPromise
-    }
+    const desktopScoped = scoped as unknown as DesktopScoped
+    let petProcess: ChildProcess | undefined
+    // Single-flight guard for `show`: a duplicate `show` RPC arriving while one
+    // is still loading must not spawn a second companion (which kills the first).
+    let showInFlight: Promise<RpcResult> | undefined
 
     const close = (): void => {
-      const current = petWindow
-      petWindow = undefined
-      if (current !== undefined && !current.isDestroyed()) current.close()
+      const current = petProcess
+      petProcess = undefined
+      if (current !== undefined && current.exitCode === null) current.kill()
     }
 
-    const dispatch = async (endpoint: string, payload: unknown): Promise<RpcResult> => {
-      if (endpoint === 'focus-client') {
-        close()
-        if (clientWindow !== undefined && !clientWindow.isDestroyed()) {
-          if (clientWindow.isMinimized()) clientWindow.restore()
-          clientWindow.show()
-          clientWindow.focus()
-        }
-        return { ok: true, value: { available: true, visible: false } }
-      }
-      if (endpoint === 'hide') {
-        close()
-        return { ok: true, value: { available: true, visible: false } }
-      }
+    const runShow = async (payload: unknown): Promise<RpcResult> => {
+      const config = configSource()
 
-      let api: ElectronApi
-      try {
-        api = await electron()
-      } catch {
-        // This is the normal path under `dsh web`: lack of Electron is not an error.
-        return { ok: true, value: { available: false, visible: false } }
+      // No Electron presence (plain `dsh web`) -> degrade to the page-internal pet.
+      if (!isElectronProcess()) return ok({ available: false, visible: false })
+      const executable = resolveCompanionExecutable(config.companionElectronPath)
+      if (executable === undefined) {
+        // Desktop, but no usable Electron binary. Tell the client so it can show
+        // the doc/configuration hint instead of silently degrading.
+        return ok({ available: false, visible: false, reason: 'electron-missing' })
       }
-
-      if (endpoint === 'probe') {
-        return { ok: true, value: { available: true, visible: petWindow !== undefined && !petWindow.isDestroyed() } }
-      }
-      if (endpoint !== 'show') return failure('unknown-endpoint')
 
       try {
-        const parent = api.BrowserWindow.getFocusedWindow()
-          ?? api.BrowserWindow.getAllWindows().find((window) => !window.isDestroyed())
-        const origin = parent === undefined || parent === null ? undefined : loopbackOrigin(parent.webContents.getURL())
+        const origin = originFromPayload(payload)
         if (origin === undefined) return failure('desktop-origin-unavailable')
-        if (parent !== petWindow) clientWindow = parent
+        const parsedOrigin = loopbackOrigin(origin)
+        if (parsedOrigin === undefined) return failure('desktop-origin-unavailable')
 
-        const { width, height, x, y } = windowBoundsFromPayload(payload)
-        // The model presentation is authoritative from the host settings
-        // (`configSource()`), not from the renderer payload. The client can be
-        // mounted before its settings scope resolves, and would then send the
-        // schema-default `modelEntry` (Haru) on the first `show`, leaving the
-        // desktop pet on the default model forever even though the user picked
-        // Megumi. Reading the resolved settings here (which the configSource
-        // closure keeps current) always shows the configured heroine, and keeps
-        // the payload scoped to the renderer-specific window bounds/position.
-        const config = configSource()
-        const url = petUrl(origin, {
+        const url = petUrl(parsedOrigin, {
           modelEntry: config.modelEntry,
           characterName: config.characterName,
           showPetNameplate: config.showPetNameplate,
@@ -261,66 +364,90 @@ export function registerDesktopPet(ctx: Context, configSource: () => HeroineConf
           modelX: config.modelX,
           modelY: config.modelY,
         })
+        const { width, height, x, y } = windowBoundsFromPayload(payload)
+        const header = desktopScoped.get?.('desktopBrowserAccess')?.rendererHeader
 
-        if (petWindow !== undefined && !petWindow.isDestroyed()) {
-          if (petWindow.webContents.getURL() !== url) await petWindow.loadURL(url)
-          petWindow.show()
-          petWindow.focus()
-          return { ok: true, value: { available: true, visible: true } }
-        }
+        const spawned = spawn(executable, [
+          companionScriptPath(),
+          ...companionArgv({
+            petUrl: url,
+            width,
+            height,
+            ...(x !== undefined ? { x } : {}),
+            ...(y !== undefined ? { y } : {}),
+            rendererHeaderName: header?.name,
+            rendererHeaderValue: header?.value,
+            carrierOrigin: parsedOrigin,
+          }),
+        // Spawn with a sanitised env: the DSH harness may set
+        // `ELECTRON_RUN_AS_NODE` (it launches its own node through Electron).
+        // If that leaks into the companion, the companion Electron would run as
+        // plain Node and never create a window, so strip it here.
+        ], {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: (() => {
+            const env = { ...process.env }
+            delete env.ELECTRON_RUN_AS_NODE
+            return env
+          })(),
+        })
 
-        const created = new api.BrowserWindow({
-          width,
-          height,
-          // Restore the screen position the user left the pet at, so the window
-          // reopens on the same spot after an app restart.
-          ...(x !== undefined ? { x } : {}),
-          ...(y !== undefined ? { y } : {}),
-          minWidth: 180,
-          minHeight: Math.round(180 * 250 / 180),
-          maxWidth: 480,
-          maxHeight: Math.round(480 * 250 / 180),
-          transparent: true,
-          frame: false,
-          hasShadow: false,
-          alwaysOnTop: true,
-          skipTaskbar: true,
-          resizable: true,
-          maximizable: false,
-          fullscreenable: false,
-          backgroundColor: '#00000000',
-          title: 'Avatar Pet',
-          webPreferences: {
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: true,
-            webSecurity: true,
-          },
+        const previous = petProcess
+        petProcess = spawned
+        hostLog(`spawning companion: ${executable} via ${companionScriptPath()}`)
+        spawned.stderr?.on('data', (chunk) => hostLog(`[stderr] ${String(chunk).trimEnd()}`))
+        spawned.once('error', (error) => {
+          hostLog(`companion spawn error: ${error.message}`)
+          if (petProcess === spawned) petProcess = undefined
         })
-        created.webContents.on('will-navigate', (event, target) => {
-          try {
-            const destination = new URL(target)
-            if (destination.origin !== origin || destination.pathname !== PET_PATH) event.preventDefault()
-          } catch {
-            event.preventDefault()
-          }
+        spawned.once('exit', (code, signal) => {
+          hostLog(`companion exited code=${code ?? 'null'} signal=${signal ?? 'null'}`)
+          if (petProcess === spawned) petProcess = undefined
         })
-        created.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-        petWindow = created
-        // Attach the Desktop renderer access header so the WebServer fence treats
-        // this window's traffic as renderer traffic. Without it the new Desktop
-        // gate returns 403 "forbidden" for the pet page, its runtime script and
-        // the Live2D model requests whenever ordinary browser access is off.
-        const browserAccess = (scoped as unknown as { get?: (key: string) => DesktopBrowserAccessLike | undefined }).get?.('desktopBrowserAccess')
-        if (browserAccess?.rendererHeader !== undefined) {
-          attachRendererAccessHeader(created.webContents, browserAccess.rendererHeader, origin)
+        if (previous !== undefined && previous.exitCode === null) previous.kill()
+
+        // Only report "available" after the window actually loads. If the
+        // discovered Electron cannot run the companion (e.g. it is the hosting
+        // app's own exe) the process exits before READY; we then kill it and let
+        // the client keep the page-internal pet, so the pet never vanishes.
+        const ready = await waitForCompanionReadiness(spawned, COMPANION_READY_TIMEOUT_MS)
+        if (!ready) {
+          close()
+          return ok({ available: false, visible: false, reason: 'companion-not-ready' })
         }
-        await created.loadURL(url)
-        return { ok: true, value: { available: true, visible: true } }
+        return ok({ available: true, visible: true })
       } catch (error) {
         close()
         return failure('desktop-pet-failed', error)
       }
+    }
+
+    const dispatch = async (endpoint: string, payload: unknown): Promise<RpcResult> => {
+      if (endpoint === 'focus-client') {
+        close()
+        return ok({ available: true, visible: false })
+      }
+      if (endpoint === 'hide') {
+        close()
+        return ok({ available: true, visible: false })
+      }
+      if (endpoint === 'probe') {
+        const config = configSource()
+        return ok({
+          available: resolveCompanionExecutable(config.companionElectronPath) !== undefined,
+          visible: petProcess !== undefined && petProcess.exitCode === null,
+        })
+      }
+      if (endpoint !== 'show') return failure('unknown-endpoint')
+
+      // DSH's client re-runs its sync effect on mount and on config/visibility
+      // changes, so two `show` RPCs can land back to back. Spawning a companion
+      // per call and killing the still-loading one with `previous.kill()` meant
+      // the very first click often opened nothing (the pet had to be toggled
+      // off and on). Reuse the in-flight show until it settles instead.
+      if (showInFlight) return showInFlight
+      showInFlight = runShow(payload).finally(() => { showInFlight = undefined })
+      return showInFlight
     }
 
     scoped.effect(

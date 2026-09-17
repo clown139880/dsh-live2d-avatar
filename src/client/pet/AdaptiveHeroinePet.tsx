@@ -7,7 +7,7 @@ interface ClientConnection {
   rpc: {
     call(channel: string, endpoint: string, payload: unknown): Promise<{
       ok: boolean
-      value?: { available?: boolean; visible?: boolean }
+      value?: { available?: boolean; visible?: boolean; reason?: string }
       error?: { message: string }
     }>
   }
@@ -22,6 +22,7 @@ const POSITION_KEY = 'dsh-live2d-avatar:desktop-pet-position'
 // to re-click "桌宠". We settle on `web` only after these attempts or a
 // definitive "Electron unavailable".
 const MAX_SHOW_ATTEMPTS = 6
+const COMPANION_DOCS_URL = 'https://github.com/clown139880/dsh-live2d-avatar/blob/main/docs/desktop-pet.md'
 
 function preferredBounds(): { width: number; x?: number; y?: number } {
   try {
@@ -40,6 +41,7 @@ function preferredBounds(): { width: number; x?: number; y?: number } {
 export function AdaptiveHeroinePet({ config, connection }: { config: HeroineConfig; connection: ClientConnection }) {
   const visible = usePetVisible()
   const [surface, setSurface] = useState<Surface>('detecting')
+  const [missingElectron, setMissingElectron] = useState(false)
   const surfaceRef = useRef<Surface>('detecting')
   useEffect(() => {
     surfaceRef.current = surface
@@ -75,6 +77,7 @@ export function AdaptiveHeroinePet({ config, connection }: { config: HeroineConf
             width,
             x,
             y,
+            origin: window.location.origin,
             modelEntry: config.modelEntry,
             characterName: config.characterName,
             showPetNameplate: config.showPetNameplate,
@@ -83,6 +86,7 @@ export function AdaptiveHeroinePet({ config, connection }: { config: HeroineConf
             modelY: config.modelY,
           })
           let available = result.ok && result.value?.available === true
+          const showReason = result.ok ? result.value?.reason : undefined
           if (!available) {
             // A desktop pet window may already be open from an earlier `show`
             // (e.g. a re-`show` after a settings change). If it is still alive we
@@ -94,7 +98,10 @@ export function AdaptiveHeroinePet({ config, connection }: { config: HeroineConf
               && probe.value?.available === true
               && probe.value?.visible === true
           }
-          if (!cancelled) setSurface(available ? 'desktop' : 'web')
+          if (!cancelled) {
+            setMissingElectron((showReason === 'electron-missing' || showReason === 'companion-not-ready') && !available)
+            setSurface(available ? 'desktop' : 'web')
+          }
           return
         } catch {
           if (attempt >= MAX_SHOW_ATTEMPTS - 1) {
@@ -112,5 +119,28 @@ export function AdaptiveHeroinePet({ config, connection }: { config: HeroineConf
   }, [config.characterName, config.enabled, config.modelEntry, config.modelScale, config.modelX, config.modelY, config.showPetNameplate, connection, visible])
 
   if (surface !== 'web') return null
-  return <HeroinePet config={config} />
+  return (
+    <>
+      {missingElectron && (
+        <div style={{
+          position: 'fixed',
+          right: 12,
+          bottom: 12,
+          zIndex: 2147483000,
+          maxWidth: 360,
+          padding: '10px 12px',
+          borderRadius: 8,
+          background: 'var(--dsw-alias-bg-float, rgba(20,22,28,0.92))',
+          color: 'var(--dsw-alias-fg-default, #e9eaf0)',
+          fontSize: 12,
+          lineHeight: 1.5,
+          boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
+        }}>
+          未能启用独立桌宠窗口，已退回页面内浮层。可在“形象”设置中配置可用的桌宠 Electron 路径，或详阅
+          <a href={COMPANION_DOCS_URL} target="_blank" rel="noreferrer" style={{ marginLeft: 4 }}>文档</a>。
+        </div>
+      )}
+      <HeroinePet config={config} />
+    </>
+  )
 }

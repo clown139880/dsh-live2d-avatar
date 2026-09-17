@@ -47,6 +47,24 @@ dsh plugin --profile web remove dsh-live2d-avatar
 
 独立窗口仍依赖正在运行的 TokensCowork Desktop；退出客户端后桌宠也会关闭。桌宠和舞台会使用当前形象设置，包括模型、角色名、缩放和位置。
 
+> 🐣 **第一次用、想一步步照做？** 完整的分步操作（怎么判断、怎么配 Electron、怎么验证、常见问题）见 **[桌面端桌宠模式使用说明](docs/desktop-pet.md)**。
+
+### 独立桌宠是如何运行的
+
+新版 DSH Desktop 把 DSH Host 整体放进了 Electron 的 `utilityProcess` 子进程，而 `BrowserWindow` 属于主进程 API，Host 里拿不到。因此本插件不再由 Host 直接建窗，而是由 Host 拉起一个**独立的 Electron 伴生进程**（`companion`），由它创建透明、无边框、置顶的桌宠窗口并加载 `/avatar/pet`。
+
+Host 会按以下顺序探测可用的 Electron 二进制，找到后用它启动伴生进程；**都找不到时自动退回页面内桌宠**：
+
+1. 设置中配置的“桌宠 Electron 路径”（`companionElectronPath`）
+2. 环境变量 `DSH_LIVE2D_AVATAR_ELECTRON` 指向的 Electron
+3. 插件 `vendor/<platform>-<arch>/`（或 `vendor/`）目录下的 Electron（不进 Git，不随包发布）
+4. 未打包/开发版 DSH Desktop 的 Electron（`process.execPath`，仅当没有打包为 `app.asar` 时）
+5. 系统 `PATH` 上的 Electron
+
+打包安装的 TokensCowork 不携带独立的通用 Electron 二进制，因此真实用户的独立桌宠需要提供上表第 1–3 项之一（例如把 `electron.exe` 放到 `vendor/win32-x64/`、设置 `DSH_LIVE2D_AVATAR_ELECTRON`，或在“形象”设置里填写路径）。未提供时桌宠作为页面内浮层显示，并在界面给出文档提示。
+
+页面内桌宠始终作为兜底保留：只有桌面引擎可用时才启用独立伴生窗口。
+
 ## 使用自己的 Live2D 模型
 
 在“形象”设置中可以配置：

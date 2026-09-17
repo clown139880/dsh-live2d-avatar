@@ -2,6 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -42,6 +43,7 @@ export const Config: Schema<Config> = Schema.object({
   ttsVoice: Schema.string().default(DEFAULT_CONFIG.ttsVoice),
   ttsLanguage: Schema.union(['zh', 'en', 'ja', 'ko', 'yue']).default(DEFAULT_CONFIG.ttsLanguage),
   ttsSpeed: Schema.number().min(0.5).max(2).default(DEFAULT_CONFIG.ttsSpeed),
+  companionElectronPath: Schema.string().default(DEFAULT_CONFIG.companionElectronPath),
 })
 
 const MIME: Record<string, string> = {
@@ -97,8 +99,35 @@ function packageRoot(): string {
   return fileURLToPath(new URL('../', import.meta.url))
 }
 
+/**
+ * Ship the desktop-pet setup/troubleshooting method as a runtime skill so a DSH
+ * agent can load it and help a user configure the companion window. Plugins are
+ * not crawled by the filesystem skill provider, so we register the skill here.
+ */
+function registerCompanionSkill(ctx: Context): void {
+  try {
+    const skills = (ctx as unknown as { skills?: { register?: (skill: Record<string, unknown>) => void } }).skills
+    if (typeof skills?.register !== 'function') return
+    const skillPath = resolve(packageRoot(), 'skills', 'live2d-desktop-pet', 'SKILL.md')
+    const raw = readFileSync(skillPath, 'utf8')
+    const body = raw.replace(/^---[\s\S]*?---\r?\n?/, '').trim()
+    skills.register({
+      name: 'live2d-desktop-pet',
+      description: '帮助 dsh-live2d-avatar 用户启用并排查独立桌宠窗口：检测 Electron、配置路径/vendor/环境变量、重启验证、读取日志定位失败原因。',
+      whenToUse: '用户提到桌宠模式、桌面桌宠、没有独立窗口、页面内浮层提示、怎么配桌宠、桌宠需要 Electron 时。',
+      body,
+      content: body,
+      invocation: { modelInvocable: true, userInvocable: true },
+    })
+    ctx.logger.info('registered skill live2d-desktop-pet')
+  } catch (error) {
+    ctx.logger.warn(`[dsh-live2d-avatar] companion skill not registered: ${error}`)
+  }
+}
+
 export function apply(ctx: Context, config: Config): void {
   ctx.logger.info('Avatar host loaded')
+  registerCompanionSkill(ctx)
   // `configSource` must be a stable closure so functions that receive it by
   // value (e.g. registerModelDeckProxy) keep observing settings updates. The
   // settings service becomes available asynchronously; reassigning a bare

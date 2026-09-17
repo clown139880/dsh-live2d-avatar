@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { presentationFromPayload, petUrl, windowBoundsFromPayload } from '../src/host/desktop-pet.ts'
+import { companionArgv, presentationFromPayload, petUrl, windowBoundsFromPayload } from '../src/host/desktop-pet.ts'
 import { DEFAULT_CONFIG } from '../src/shared/config.ts'
 
 describe('desktop pet presentation', () => {
@@ -69,5 +69,37 @@ describe('desktop pet window bounds', () => {
       x: undefined,
       y: undefined,
     })
+  })
+})
+
+describe('desktop companion argv', () => {
+  it('includes the pet URL, bounds and optional renderer header/carrier origin', () => {
+    expect(companionArgv({
+      petUrl: 'http://127.0.0.1:8080/avatar/pet?model=haru/Haru.model3.json&scale=1',
+      width: 300,
+      height: 417,
+      x: 25,
+      y: 60,
+      rendererHeaderName: 'x-dsh-desktop-renderer',
+      rendererHeaderValue: 'generation-token',
+      carrierOrigin: 'http://127.0.0.1:8080',
+    })).toEqual([
+      '--pet-url=http://127.0.0.1:8080/avatar/pet?model=haru/Haru.model3.json&scale=1',
+      '--width=300',
+      '--height=417',
+      '--x=25',
+      '--y=60',
+      '--renderer-header-name=x-dsh-desktop-renderer',
+      '--renderer-header-value=generation-token',
+      '--carrier-origin=http://127.0.0.1:8080',
+    ])
+  })
+
+  it('omits optional x/y and header args when they are absent', () => {
+    expect(companionArgv({ petUrl: 'http://127.0.0.1:8080/avatar/pet', width: 300, height: 417 })).toEqual([
+      '--pet-url=http://127.0.0.1:8080/avatar/pet',
+      '--width=300',
+      '--height=417',
+    ])
   })
 })
