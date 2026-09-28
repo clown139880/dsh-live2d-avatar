@@ -28,7 +28,6 @@ export interface HeroineConfig {
   ttsVoice: string
   ttsLanguage: 'zh' | 'en' | 'ja' | 'ko' | 'yue'
   ttsSpeed: number
-  companionElectronPath: string
 }
 
 export const DEFAULT_CONFIG: HeroineConfig = {
@@ -58,7 +57,6 @@ export const DEFAULT_CONFIG: HeroineConfig = {
   ttsVoice: '',
   ttsLanguage: 'zh',
   ttsSpeed: 1,
-  companionElectronPath: '',
 }
 
 export const SETTINGS_NAMESPACE = 'dsh-live2d-avatar'

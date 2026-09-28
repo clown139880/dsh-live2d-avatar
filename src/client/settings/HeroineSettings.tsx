@@ -28,7 +28,6 @@ const AVATAR_FIELDS: Field[] = [
   { key: 'modelY', label: '角色垂直偏移', type: 'number', hint: '范围 -3–3；0 为模型默认位置。' },
   { key: 'characterName', label: '角色名称', type: 'text' },
   { key: 'showPetNameplate', label: '显示桌宠名牌', type: 'checkbox', hint: '在桌宠脚边显示角色名称；默认关闭。' },
-  { key: 'companionElectronPath', label: '桌宠 Electron 路径', type: 'text', hint: '独立伴生窗口需要通用 Electron。留空时依次探测：DSH_LIVE2D_AVATAR_ELECTRON 环境变量 → 插件 vendor/ 目录 → 开发版 DSH Desktop → 系统 PATH。未提供时桌宠作为页面内浮层显示。' },
   { key: 'background', label: '舞台背景', type: 'text', hint: '支持 CSS 颜色或变量；默认跟随 DSH 当前主题。' },
   { key: 'llmControlEnabled', label: '所有对话默认启用表情控制', type: 'checkbox', hint: '高级全局设置：向所有 DSH 对话的 system prompt 添加 Live2D 控制协议。默认关闭；每个对话可在舞台内单独决定。' },
 ]

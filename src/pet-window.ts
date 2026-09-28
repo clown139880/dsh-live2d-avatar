@@ -2,12 +2,15 @@ import { L2dAvatarEngine } from './client/avatar/l2d-engine.ts'
 import { profileForModel } from './client/avatar/profiles.ts'
 import { resolveModelUrl } from './shared/config.ts'
 
-const MIN_WIDTH = 180
-const MAX_WIDTH = 480
-const STEP = 30
-const RATIO = 250 / 180
-const SIZE_KEY = 'dsh-live2d-avatar:desktop-pet-size'
-const POSITION_KEY = 'dsh-live2d-avatar:desktop-pet-position'
+type PetWindow = Window & {
+  chrome?: { webview?: { postMessage(message: unknown): void } }
+  webkit?: { messageHandlers?: { pet?: { postMessage(message: unknown): void } } }
+}
+const petWindow = window as PetWindow
+function send(message: Record<string, unknown>): void {
+  if (petWindow.chrome?.webview) petWindow.chrome.webview.postMessage(message)
+  else petWindow.webkit?.messageHandlers?.pet?.postMessage(JSON.stringify(message))
+}
 
 const canvas = document.querySelector<HTMLCanvasElement>('#heroine-pet-canvas')
 const name = document.querySelector<HTMLElement>('#heroine-pet-name')
@@ -16,42 +19,6 @@ const larger = document.querySelector<HTMLButtonElement>('#heroine-pet-larger')
 const close = document.querySelector<HTMLButtonElement>('#heroine-pet-close')
 const back = document.querySelector<HTMLButtonElement>('#heroine-pet-back')
 const params = new URLSearchParams(location.search)
-let sizeSaveTimer: ReturnType<typeof setTimeout> | undefined
-
-function currentWidth(): number {
-  const width = window.outerWidth
-  return Number.isFinite(width) ? Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, width)) : 300
-}
-
-function resize(width: number): void {
-  const next = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, Math.round(width)))
-  window.resizeTo(next, Math.round(next * RATIO))
-  try { localStorage.setItem(SIZE_KEY, String(next)) } catch { /* storage can be unavailable */ }
-  if (smaller) smaller.disabled = next <= MIN_WIDTH
-  if (larger) larger.disabled = next >= MAX_WIDTH
-}
-
-function persistBounds(): void {
-  if (sizeSaveTimer !== undefined) clearTimeout(sizeSaveTimer)
-  sizeSaveTimer = setTimeout(() => {
-    const width = currentWidth()
-    try {
-      localStorage.setItem(SIZE_KEY, String(width))
-      localStorage.setItem(POSITION_KEY, JSON.stringify({ x: window.screenX, y: window.screenY }))
-    } catch { /* storage can be unavailable */ }
-    if (smaller) smaller.disabled = width <= MIN_WIDTH
-    if (larger) larger.disabled = width >= MAX_WIDTH
-  }, 120)
-}
-
-function restoreWindow(): void {
-  try {
-    const width = Number(localStorage.getItem(SIZE_KEY))
-    if (Number.isFinite(width)) resize(width)
-    const position = JSON.parse(localStorage.getItem(POSITION_KEY) ?? '') as { x?: unknown; y?: unknown }
-    if (Number.isFinite(position.x) && Number.isFinite(position.y)) window.moveTo(Number(position.x), Number(position.y))
-  } catch { /* keep Electron defaults */ }
-}
 
 if (canvas) {
   const modelEntry = params.get('model') ?? 'haru/Haru.model3.json'
@@ -66,32 +33,24 @@ if (canvas) {
     x: Number.isFinite(x) ? x : 0,
     y: Number.isFinite(y) ? y : 0.1,
   })
-  void engine.load(resolveModelUrl(modelEntry)).catch(() => {})
-  window.addEventListener('resize', () => {
-    engine.resize()
-    persistBounds()
-  })
-  window.addEventListener('move', persistBounds)
+  const url = location.protocol === 'file:'
+    ? new URL(`../models/${modelEntry.replace(/^\/+/, '')}`, location.href).href
+    : resolveModelUrl(modelEntry)
+  void engine.load(url).catch(() => {})
+  window.addEventListener('resize', () => engine.resize())
   window.addEventListener('beforeunload', () => engine.destroy())
 }
+if (name) { name.textContent = params.get('name') ?? 'Avatar'; name.hidden = params.get('nameplate') !== '1' }
+smaller?.addEventListener('click', () => send({ type: 'resize', delta: -30 }))
+larger?.addEventListener('click', () => send({ type: 'resize', delta: 30 }))
+close?.addEventListener('click', () => send({ type: 'close' }))
+back?.addEventListener('click', () => send({ type: 'return-stage' }))
 
-if (name) {
-  name.textContent = params.get('name') ?? 'Avatar'
-  name.hidden = params.get('nameplate') !== '1'
-}
-smaller?.addEventListener('click', () => resize(currentWidth() - STEP))
-larger?.addEventListener('click', () => resize(currentWidth() + STEP))
-close?.addEventListener('click', () => {
-  try { new BroadcastChannel('dsh-live2d-avatar:pet').postMessage({ type: 'close' }) } catch { /* optional */ }
-  window.close()
+let dragging = false
+document.querySelector('#heroine-pet')?.addEventListener('pointerdown', (event) => {
+  const e = event as PointerEvent
+  if ((e.target as Element).closest('button')) return
+  dragging = true
+  send({ type: 'drag-start', screenX: e.screenX, screenY: e.screenY })
 })
-back?.addEventListener('click', () => {
-  try { new BroadcastChannel('dsh-live2d-avatar:pet').postMessage({ type: 'return-stage' }) } catch { /* optional */ }
-})
-window.addEventListener('beforeunload', () => {
-  try {
-    localStorage.setItem(SIZE_KEY, String(currentWidth()))
-    localStorage.setItem(POSITION_KEY, JSON.stringify({ x: window.screenX, y: window.screenY }))
-  } catch { /* optional */ }
-})
-restoreWindow()
+window.addEventListener('pointerup', () => { if (dragging) { dragging = false; send({ type: 'drag-end' }) } })

@@ -43,7 +43,6 @@ export const Config: Schema<Config> = Schema.object({
   ttsVoice: Schema.string().default(DEFAULT_CONFIG.ttsVoice),
   ttsLanguage: Schema.union(['zh', 'en', 'ja', 'ko', 'yue']).default(DEFAULT_CONFIG.ttsLanguage),
   ttsSpeed: Schema.number().min(0.5).max(2).default(DEFAULT_CONFIG.ttsSpeed),
-  companionElectronPath: Schema.string().default(DEFAULT_CONFIG.companionElectronPath),
 })
 
 const MIME: Record<string, string> = {
@@ -61,39 +60,7 @@ const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
 }
 
-const PET_PAGE = `<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; style-src 'unsafe-inline'; worker-src 'self' blob:">
-  <title>Avatar Pet</title>
-  <style>
-    *{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;overflow:hidden;background:transparent;color:#f5f5f5;font-family:system-ui,sans-serif;user-select:none}
-    #heroine-pet{position:relative;width:100%;height:100%;filter:drop-shadow(0 16px 20px rgba(0,0,0,.3));-webkit-app-region:drag}
-    #heroine-pet-canvas{display:block;width:100%;height:100%}
-    #heroine-pet-controls{position:absolute;z-index:3;top:8px;right:8px;display:flex;gap:5px;opacity:0;transition:opacity .15s;-webkit-app-region:no-drag}
-    #heroine-pet:hover #heroine-pet-controls,#heroine-pet-controls:focus-within{opacity:1}
-    button{display:grid;place-items:center;width:29px;height:29px;padding:0;border:1px solid rgba(255,255,255,.28);border-radius:50%;background:rgba(28,28,32,.7);color:#fff;backdrop-filter:blur(10px);cursor:pointer}
-    button:hover:not(:disabled){background:rgba(55,55,62,.88)}button:disabled{opacity:.35;cursor:default}
-    #heroine-pet-name{position:absolute;right:20px;bottom:5px;left:20px;padding:6px 9px;border:1px solid rgba(255,255,255,.2);border-radius:999px;background:rgba(28,28,32,.55);text-align:center;font-size:11px;backdrop-filter:blur(10px);pointer-events:none}
-    body[data-status=error]::after{content:'Live2D 加载失败';position:absolute;inset:50% auto auto 50%;transform:translate(-50%,-50%);padding:8px 12px;border-radius:10px;background:rgba(120,20,20,.85);white-space:nowrap;font-size:12px}
-  </style>
-</head>
-<body>
-  <main id="heroine-pet">
-    <canvas id="heroine-pet-canvas"></canvas>
-    <div id="heroine-pet-controls" role="toolbar" aria-label="桌宠控制">
-      <button id="heroine-pet-back" aria-label="返回形象舞台" title="返回舞台">↩</button>
-      <button id="heroine-pet-smaller" aria-label="缩小桌宠">−</button>
-      <button id="heroine-pet-larger" aria-label="放大桌宠">＋</button>
-      <button id="heroine-pet-close" aria-label="关闭桌宠">×</button>
-    </div>
-    <div id="heroine-pet-name"></div>
-  </main>
-  <script src="/avatar/pet-window.js"></script>
-</body>
-</html>`
+const PET_PAGE = readFileSync(resolve(packageRoot(), 'assets', 'pet-page.html'), 'utf8')
 
 function packageRoot(): string {
   return fileURLToPath(new URL('../', import.meta.url))
@@ -113,8 +80,8 @@ function registerCompanionSkill(ctx: Context): void {
     const body = raw.replace(/^---[\s\S]*?---\r?\n?/, '').trim()
     skills.register({
       name: 'live2d-desktop-pet',
-      description: '帮助 dsh-live2d-avatar 用户启用并排查独立桌宠窗口：检测 Electron、配置路径/vendor/环境变量、重启验证、读取日志定位失败原因。',
-      whenToUse: '用户提到桌宠模式、桌面桌宠、没有独立窗口、页面内浮层提示、怎么配桌宠、桌宠需要 Electron 时。',
+      description: '帮助 dsh-live2d-avatar 用户启用并排查独立桌宠窗口。',
+      whenToUse: '用户提到桌宠模式、桌面桌宠、没有独立窗口、页面内浮层提示或桌宠故障时。',
       body,
       content: body,
       invocation: { modelInvocable: true, userInvocable: true },

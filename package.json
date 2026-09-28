@@ -30,6 +30,8 @@
     "lib",
     "assets/vad",
     "assets/models/haru",
+    "assets/pet-page.html",
+    "assets/webview2",
     "docs",
     "skills",
     "CHANGELOG.md",
